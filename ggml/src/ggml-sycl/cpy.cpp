@@ -509,7 +509,59 @@ static void ggml_cpy_q4_1_q4_1(const char * cx, char * cdst, const int ne, const
         });
 }
 
-void ggml_sycl_cpy(ggml_backend_sycl_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1) try {
+void ggml_memcpy_sycl(queue_ptr main_stream, void * v_dst, const void * v_src, size_t bytes, bool use_native_memcpy) {
+    if (use_native_memcpy) {
+        GGML_SYCL_DEBUG("%s: memcpy path\n", __func__);
+        main_stream->memcpy(v_dst, v_src, bytes);
+    } else {
+        const unsigned char * src       = reinterpret_cast<const unsigned char *>(v_src);
+        unsigned char *       dst       = reinterpret_cast<unsigned char *>(v_dst);
+        constexpr size_t      vec_width = 8;  // 8-byte transfer per work item
+        uintptr_t             s_addr    = reinterpret_cast<uintptr_t>(src);
+        size_t                prefix    = vec_width - (s_addr % vec_width);
+        if (prefix > bytes) {
+            prefix = bytes;
+        }
+        size_t remaining_after_prefix = (bytes > prefix) ? (bytes - prefix) : 0;
+        size_t vector_count           = 0;
+        size_t tail                   = 0;
+        if (remaining_after_prefix >= vec_width && prefix != bytes) {
+            vector_count = remaining_after_prefix / vec_width;
+            tail         = remaining_after_prefix % vec_width;
+        } else {
+            tail = remaining_after_prefix;
+        }
+        size_t global_size = (vector_count == 0) ? 1 : vector_count;
+        main_stream->parallel_for(sycl::range<1>(global_size), [=](sycl::id<1> idx) {
+            // Work-item 0 copies up-to 8-byte alignment if source pointer is not 8-byte aligned
+            if (idx == 0 && prefix > 0) {
+                for (size_t i = 0; i < prefix; ++i) {
+                    dst[i] = src[i];
+                }
+            }
+            // Each work-item copies an 8-byte aligned vector
+            const unsigned char *               src_vec_base = src + prefix;
+            unsigned char *                     dst_vec_base = dst + prefix;
+            sycl::vec<unsigned char, vec_width> vec =
+                vec_aligned_load<unsigned char, vec_width>(src_vec_base + idx * vec_width);
+            vec.store(idx, dst_vec_base);
+            // Work-item global_size - 1 performs any remainder scalar copies
+            if (idx == vector_count - 1 && tail > 0) {
+                const size_t          copied_vec_bytes  = vector_count * vec_width;
+                const unsigned char * src_tail          = src_vec_base + copied_vec_bytes;
+                unsigned char *       dst_tail          = dst_vec_base + copied_vec_bytes;
+                for (size_t i = 0; i < tail; ++i) {
+                    dst_tail[i] = src_tail[i];
+                }
+            }
+        });
+    }
+}
+
+void ggml_sycl_cpy(ggml_backend_sycl_context & ctx,
+                   const ggml_tensor *         src0,
+                   const ggml_tensor *         src1,
+                   bool                        can_use_native_memcpy) try {
     // Unlike other operators ggml_sycl_cpy takes 2 distinct tensors instead of a dst ggml_tensor and rely on its src field
     scope_op_debug_print scope_dbg_print(__func__, src1, /*num_src=*/0, debug_get_tensor_str("\tsrc0", src0));
     const int64_t ne = ggml_nelements(src0);
@@ -526,8 +578,7 @@ void ggml_sycl_cpy(ggml_backend_sycl_context & ctx, const ggml_tensor * src0, co
     char * src0_ddc = (char *) src0->data;
     char * src1_ddc = (char *) src1->data;
     if ((src0->type == src1->type) && (ggml_is_contiguous(src0) && ggml_is_contiguous(src1))) {
-        GGML_SYCL_DEBUG("%s: memcpy path\n", __func__);
-        main_stream->memcpy(src1_ddc, src0_ddc, ggml_nbytes(src0));
+        ggml_memcpy_sycl(main_stream, src1_ddc, src0_ddc, ggml_nbytes(src0), can_use_native_memcpy);
     } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32) {
         ggml_cpy_f32_f32_sycl(src0_ddc, src1_ddc, ne, ne00, ne01, ne02, nb00, nb01, nb02, nb03, ne10, ne11, ne12, nb10,
                               nb11, nb12, nb13, main_stream);
@@ -599,7 +650,7 @@ void ggml_sycl_cpy(ggml_backend_sycl_context & ctx, const ggml_tensor * src0, co
     std::exit(1);
 }
 
-void ggml_sycl_dup(ggml_backend_sycl_context & ctx, ggml_tensor * dst) {
+void ggml_sycl_dup(ggml_backend_sycl_context & ctx, ggml_tensor * dst, bool can_use_native_memcpy) {
     scope_op_debug_print scope_dbg_print(__func__, dst, /*num_src=*/1);
-    ggml_sycl_cpy(ctx, dst->src[0], dst);
+    ggml_sycl_cpy(ctx, dst->src[0], dst, can_use_native_memcpy);
 }

@@ -3568,7 +3568,7 @@ static bool ggml_sycl_compute_forward(ggml_backend_sycl_context & ctx, struct gg
             ggml_sycl_op_set_rows(ctx, dst);
             break;
         case GGML_OP_DUP:
-            ggml_sycl_dup(ctx, dst);
+            ggml_sycl_dup(ctx, dst, g_ggml_sycl_disable_graph);
             break;
         case GGML_OP_ADD:
         case GGML_OP_ADD1: // TODO: more efficient implementation
@@ -3723,10 +3723,10 @@ static bool ggml_sycl_compute_forward(ggml_backend_sycl_context & ctx, struct gg
             ggml_sycl_clamp(ctx, dst);
             break;
         case GGML_OP_CPY:
-            ggml_sycl_cpy(ctx, dst->src[0], dst->src[1]);
+            ggml_sycl_cpy(ctx, dst->src[0], dst->src[1], g_ggml_sycl_disable_graph);
             break;
         case GGML_OP_CONT:
-            ggml_sycl_dup(ctx, dst);
+            ggml_sycl_dup(ctx, dst, g_ggml_sycl_disable_graph);
             break;
         case GGML_OP_NONE:
         case GGML_OP_RESHAPE:
