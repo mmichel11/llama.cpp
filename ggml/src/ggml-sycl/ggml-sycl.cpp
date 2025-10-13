@@ -3025,7 +3025,7 @@ static inline uint8_t * ggml_sycl_async_alloc_bytes(size_t size, dpct::queue_ptr
 
 static inline void ggml_sycl_async_free_bytes(void * ptr, dpct::queue_ptr stream) {
     //sycl::ext::oneapi::experimental::async_free(*stream, ptr);
-    cgh->submit([=](sycl::handler & cgh) {
+    stream->submit([=](sycl::handler & cgh) {
         sycl::ext::oneapi::experimental::async_free(cgh, ptr);
     });
 }
