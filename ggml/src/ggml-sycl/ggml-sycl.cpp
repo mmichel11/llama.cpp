@@ -3011,6 +3011,26 @@ inline bool ggml_sycl_supports_reorder_mmvq(enum ggml_type type) {
     }
 }
 
+#if  SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+static inline uint8_t * ggml_sycl_async_alloc_bytes(size_t size, dpct::queue_ptr stream) {
+    // use experimental async malloc to avoid blocking waits; rely on in-order queue sequencing
+    //return static_cast<uint8_t *>(sycl::ext::oneapi::experimental::malloc_shared(size, *stream));
+    uint8_t * alloc = nullptr;
+    stream->submit([&](sycl::handler & cgh) {
+        alloc = static_cast<uint8_t *>(sycl::ext::oneapi::experimental::async_malloc(cgh, sycl::usm::alloc::device, size));
+    });
+    return alloc;
+    // return static_cast<uint8_t *>(sycl::ext::oneapi::experimental::async_malloc(*stream, sycl::usm::alloc::device, size));
+}
+
+static inline void ggml_sycl_async_free_bytes(void * ptr, dpct::queue_ptr stream) {
+    //sycl::ext::oneapi::experimental::async_free(*stream, ptr);
+    cgh->submit([=](sycl::handler & cgh) {
+        sycl::ext::oneapi::experimental::async_free(cgh, ptr);
+    });
+}
+#endif
+
 static bool ggml_sycl_supports_dmmv(enum ggml_type type) {
     switch (type) {
         case GGML_TYPE_Q4_0:
@@ -3032,10 +3052,14 @@ static bool ggml_sycl_supports_dmmv(enum ggml_type type) {
 
 static void reorder_qw_q4_0(uint8_t * data_device, const int ncols, const int nrows, size_t size, size_t offset,
                             dpct::queue_ptr stream) {
-    auto * tmp_buf = sycl::malloc_shared<uint8_t>(size, *stream);
-    SYCL_CHECK(
-        CHECK_TRY_ERROR((*stream).memcpy(tmp_buf, data_device, size)
-            .wait()));
+    uint8_t * tmp_buf = nullptr;
+#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+    tmp_buf = ggml_sycl_async_alloc_bytes(size, stream);
+    SYCL_CHECK(CHECK_TRY_ERROR(stream->memcpy(tmp_buf, data_device, size)));
+#else
+    tmp_buf = sycl::malloc_shared<uint8_t>(size, *stream);
+    SYCL_CHECK(CHECK_TRY_ERROR(stream->memcpy(tmp_buf, data_device, size).wait()));
+#endif
     GGML_ASSERT((size % sizeof(block_q4_0) == 0));
     GGML_ASSERT((offset % sizeof(block_q4_0) == 0));
     int offset_blks = offset / sizeof(block_q4_0);
@@ -3053,9 +3077,18 @@ static void reorder_qw_q4_0(uint8_t * data_device, const int ncols, const int nr
                 *(qs_ptr + ib * QK4_0 / 2 + j) = x[ib].qs[j];
             }
             *(d_ptr + ib) = x[ib].d;
-        }).wait_and_throw();
+        })
+    #if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+        ;
+    #else
+        .wait();
+    #endif
 
+#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+    ggml_sycl_async_free_bytes(tmp_buf, stream);
+#else
     sycl::free(tmp_buf, *stream);
+#endif
 }
 
 static void reorder_qw_q4_k(uint8_t * data_device, size_t size, size_t offset, dpct::queue_ptr stream) {
@@ -3064,8 +3097,14 @@ static void reorder_qw_q4_k(uint8_t * data_device, size_t size, size_t offset, d
 
     const int nblocks = size / sizeof(block_q4_K);
 
-    auto * tmp_buf = sycl::malloc_shared<uint8_t>(size, *stream);
-    SYCL_CHECK(CHECK_TRY_ERROR((*stream).memcpy(tmp_buf, data_device, size).wait()));
+    uint8_t * tmp_buf = nullptr;
+#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+    tmp_buf = ggml_sycl_async_alloc_bytes(size, stream);
+    SYCL_CHECK(CHECK_TRY_ERROR(stream->memcpy(tmp_buf, data_device, size)));
+#else
+    tmp_buf = sycl::malloc_shared<uint8_t>(size, *stream);
+    SYCL_CHECK(CHECK_TRY_ERROR(stream->memcpy(tmp_buf, data_device, size).wait()));
+#endif
 
     auto * qs_ptr     = data_device;
     auto * scales_ptr = qs_ptr + QK_K / 2 * nblocks;
@@ -3084,9 +3123,18 @@ static void reorder_qw_q4_k(uint8_t * data_device, size_t size, size_t offset, d
         }
 
         dm_ptr[ib] = x[ib].dm;
-    }).wait_and_throw();
+    })
+#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+    ;
+#else
+    .wait_and_throw();
+#endif
 
+#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+    ggml_sycl_async_free_bytes(tmp_buf, stream);
+#else
     sycl::free(tmp_buf, *stream);
+#endif
 }
 
 static void reorder_qw_q6_k(uint8_t * data_device, size_t size, size_t offset, dpct::queue_ptr stream) {
@@ -3095,8 +3143,14 @@ static void reorder_qw_q6_k(uint8_t * data_device, size_t size, size_t offset, d
 
     const int nblocks = size / sizeof(block_q6_K);
 
-    auto * tmp_buf = sycl::malloc_shared<uint8_t>(size, *stream);
-    SYCL_CHECK(CHECK_TRY_ERROR((*stream).memcpy(tmp_buf, data_device, size).wait()));
+    uint8_t * tmp_buf = nullptr;
+#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+    tmp_buf = ggml_sycl_async_alloc_bytes(size, stream);
+    SYCL_CHECK(CHECK_TRY_ERROR(stream->memcpy(tmp_buf, data_device, size)));
+#else
+    tmp_buf = sycl::malloc_shared<uint8_t>(size, *stream);
+    SYCL_CHECK(CHECK_TRY_ERROR(stream->memcpy(tmp_buf, data_device, size).wait()));
+#endif
 
     auto *       ql_ptr     = data_device;
     auto *       qh_ptr     = ql_ptr + (QK_K / 2) * nblocks;
@@ -3128,9 +3182,17 @@ static void reorder_qw_q6_k(uint8_t * data_device, size_t size, size_t offset, d
 
                            dm_ptr[ib] = x[ib].d;
                        })
-        .wait_and_throw();
+#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+                       ;
+#else
+                       .wait();
+#endif
 
+#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+    ggml_sycl_async_free_bytes(tmp_buf, stream);
+#else
     sycl::free(tmp_buf, *stream);
+#endif
 }
 
 static void reorder_qw(const ggml_tensor * src0, dpct::queue_ptr stream) {
