@@ -3096,7 +3096,6 @@ static void reorder_qw_q4_0(uint8_t * data_device, const int ncols, const int nr
     if (!use_async) {
         stream->wait();
     }
-
     sycl_free_opt_async(stream, tmp_buf, use_async);
 }
 
@@ -3136,7 +3135,6 @@ static void reorder_qw_q4_k(uint8_t * data_device, size_t size, size_t offset, d
     if (!use_async) {
         e.wait();
     }
-
     sycl_free_opt_async(stream, tmp_buf, use_async);
 }
 
@@ -3184,11 +3182,9 @@ static void reorder_qw_q6_k(uint8_t * data_device, size_t size, size_t offset, d
 
                            dm_ptr[ib] = x[ib].d;
                        });
-
     if (!use_async) {
         e.wait();
     }
-
     sycl_free_opt_async(stream, tmp_buf, use_async);
 }
 
