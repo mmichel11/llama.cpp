@@ -94,14 +94,6 @@ static ggml_sycl_device_info ggml_sycl_init() {
         info.devices[i].smpbo = prop.get_local_mem_size();
 
         info.max_work_group_sizes[i] = prop.get_max_work_group_size();
-
-#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
-        if (!device.has(sycl::aspect::ext_oneapi_async_memory_alloc)) {
-            g_ggml_sycl_disable_async_mem_alloc = 1;
-        }
-#else
-        g_ggml_sycl_disable_async_mem_alloc = 1;
-#endif
     }
 
     for (int id = 0; id < info.device_count; ++id) {
@@ -248,7 +240,16 @@ static void ggml_check_sycl() try {
         fprintf(stderr, "%s: SYCL_USE_XMX: no\n", __func__);
 #endif
 */
-
+#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+        for (int i = 0; dpct::dev_mgr::instance().device_count(); ++i) {
+            if (!dpct::dev_mgr::instance().get_device(i).has(sycl::aspect::ext_oneapi_async_memory_alloc)) {
+                g_ggml_sycl_disable_async_mem_alloc = 1;
+                break;
+            }
+        }
+#else
+        g_ggml_sycl_disable_async_mem_alloc = 1;
+#endif
         if (CHECK_TRY_ERROR(g_all_sycl_device_count =
                             dpct::dev_mgr::instance().device_count()) != 0) {
             initialized = true;
@@ -4092,6 +4093,14 @@ static bool check_graph_compatibility(ggml_cgraph * cgraph) {
                 GGML_LOG_INFO("%s: disabling SYCL graphs due to unsupported node type %s\n", __func__,
                               ggml_op_name(node_op));
                 return false;
+            case GGML_OP_MUL_MAT:
+                if (g_ggml_sycl_disable_async_mem_alloc) {
+                    GGML_LOG_INFO("%s: disabling SYCL graphs due to unsupported node type with no async memory allocations in " 
+                                  "%s\n", __func__,
+                                  ggml_op_name(node_op));
+                    return false;
+                }
+                return true;
         }
     }
     return true;
