@@ -240,6 +240,10 @@ static void ggml_check_sycl() try {
         fprintf(stderr, "%s: SYCL_USE_XMX: no\n", __func__);
 #endif
 */
+        // Currently, we only use async malloc / free when graphs are enabled as it is required for the calls to be
+        // properly recorded. As this SYCL extension matures it may be beneficial to enable as the default path and in
+        // other places.
+        g_ggml_sycl_disable_async_mem_alloc = g_ggml_sycl_disable_graph;
 #if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
         for (int i = 0; i < dpct::dev_mgr::instance().device_count(); ++i) {
             if (!dpct::dev_mgr::instance().get_device(i).has(sycl::aspect::ext_oneapi_async_memory_alloc)) {
