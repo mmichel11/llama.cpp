@@ -3076,7 +3076,7 @@ static inline void sycl_free_opt_async(dpct::queue_ptr stream, void* ptr, bool u
 
 static void reorder_qw_q4_0(uint8_t * data_device, const int ncols, const int nrows, size_t size, size_t offset,
                             dpct::queue_ptr stream) {
-    bool use_async = !g_ggml_sycl_disable_async_mem_alloc;
+    const bool use_async = !g_ggml_sycl_disable_async_mem_alloc;
     uint8_t * tmp_buf = static_cast<uint8_t *>(sycl_malloc_opt_async(stream, sycl::usm::alloc::device, size, use_async));
 
     sycl::event copy_event;
@@ -3091,7 +3091,7 @@ static void reorder_qw_q4_0(uint8_t * data_device, const int ncols, const int nr
     auto qs_ptr      = data_device + offset_blks * QK4_0 / 2;
     auto d_ptr = (sycl::half*)(qs_ptr + ncols * nrows / 2) + offset_blks;
 
-    auto e = stream->parallel_for(
+    auto reorder_event = stream->parallel_for(
         size / sizeof(block_q4_0),
             [=](auto i) [[sycl::reqd_sub_group_size(WARP_SIZE)]] {
             const block_q4_0* x = (const block_q4_0*)tmp_buf;
@@ -3104,7 +3104,7 @@ static void reorder_qw_q4_0(uint8_t * data_device, const int ncols, const int nr
             *(d_ptr + ib) = x[ib].d;
         });
     if (!use_async) {
-        e.wait();
+        reorder_event.wait_and_throw();
     }
     sycl_free_opt_async(stream, tmp_buf, use_async);
 }
@@ -3115,7 +3115,7 @@ static void reorder_qw_q4_k(uint8_t * data_device, size_t size, size_t offset, d
 
     const int nblocks = size / sizeof(block_q4_K);
 
-    bool use_async = !g_ggml_sycl_disable_async_mem_alloc;
+    const bool use_async = !g_ggml_sycl_disable_async_mem_alloc;
     uint8_t * tmp_buf = static_cast<uint8_t *>(sycl_malloc_opt_async(stream, sycl::usm::alloc::device, size, use_async));
 
     sycl::event copy_event;
@@ -3128,7 +3128,7 @@ static void reorder_qw_q4_k(uint8_t * data_device, size_t size, size_t offset, d
     auto * scales_ptr = qs_ptr + QK_K / 2 * nblocks;
     auto * dm_ptr     = (sycl::half2 *) (scales_ptr + K_SCALE_SIZE * nblocks);
 
-    auto e = stream->parallel_for(nblocks, [=](auto i) {
+    auto reorder_event = stream->parallel_for(nblocks, [=](auto i) {
         const block_q4_K * x  = (const block_q4_K *) tmp_buf;
         const int          ib = i;
 
@@ -3143,7 +3143,7 @@ static void reorder_qw_q4_k(uint8_t * data_device, size_t size, size_t offset, d
         dm_ptr[ib] = x[ib].dm;
     });
     if (!use_async) {
-        e.wait();
+        reorder_event.wait_and_throw();
     }
     sycl_free_opt_async(stream, tmp_buf, use_async);
 }
@@ -3154,7 +3154,7 @@ static void reorder_qw_q6_k(uint8_t * data_device, size_t size, size_t offset, d
 
     const int nblocks = size / sizeof(block_q6_K);
 
-    bool use_async = !g_ggml_sycl_disable_async_mem_alloc;
+    const bool use_async = !g_ggml_sycl_disable_async_mem_alloc;
     uint8_t * tmp_buf = static_cast<uint8_t *>(sycl_malloc_opt_async(stream, sycl::usm::alloc::device, size, use_async));
 
     sycl::event copy_event;
@@ -3168,7 +3168,7 @@ static void reorder_qw_q6_k(uint8_t * data_device, size_t size, size_t offset, d
     auto *       scales_ptr = qh_ptr + (QK_K / 4) * nblocks;
     sycl::half * dm_ptr     = (sycl::half *) (scales_ptr + (QK_K / 16) * nblocks);
 
-    auto e = stream->parallel_for(nblocks,
+    auto reorder_event = stream->parallel_for(nblocks,
                        [=](auto i) {
                            const block_q6_K * x  = (const block_q6_K *) tmp_buf;
                            const int          ib = i;
@@ -3193,7 +3193,7 @@ static void reorder_qw_q6_k(uint8_t * data_device, size_t size, size_t offset, d
                            dm_ptr[ib] = x[ib].d;
                        });
     if (!use_async) {
-        e.wait();
+        reorder_event.wait_and_throw();
     }
     sycl_free_opt_async(stream, tmp_buf, use_async);
 }
@@ -4103,9 +4103,9 @@ static bool check_graph_compatibility(ggml_cgraph * cgraph) {
                               ggml_op_name(node_op));
                 return false;
             case GGML_OP_MUL_MAT:
-                // We cannot use graphs with GGML_OP_MUL_MAT when SYCL async memory allocation extensions are not available,
-                // as SYCL malloc / free calls are not supported when recording to a graph and wait() is present in reordering
-                // calls.
+                // We cannot use graphs with ggml_sycl_mul_mat() when SYCL async memory allocation extensions are not available,
+                // as SYCL malloc / free and host wait calls are not supported when recording to a graph which are all present
+                // in reordering.
                 if (g_ggml_sycl_disable_async_mem_alloc) {
                     GGML_LOG_INFO(
                         "%s: disabling SYCL graphs due to unsupported node type when using a compiler without the "
