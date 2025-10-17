@@ -31,7 +31,7 @@
 
 #include <sycl/sycl.hpp>
 #if defined(GGML_SYCL_GRAPH) && SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
-#   include <sycl/ext/oneapi/experimental/async_alloc/async_alloc.hpp>
+#    include <sycl/ext/oneapi/experimental/async_alloc/async_alloc.hpp>
 #endif
 #include <sycl/half_type.hpp>
 
@@ -51,12 +51,12 @@
 #include "ggml.h"
 
 static bool g_sycl_loaded = false;
-int g_ggml_sycl_disable_async_mem_alloc = 0;
 int g_ggml_sycl_debug = 0;
 int g_ggml_sycl_disable_optimize = 0;
 int g_ggml_sycl_disable_graph = 0;
 int g_ggml_sycl_disable_dnn = 0;
 int g_ggml_sycl_prioritize_dmmv = 0;
+int g_ggml_sycl_disable_async_mem_alloc = 0;
 
 static ggml_sycl_device_info ggml_sycl_init() {
     ggml_sycl_device_info info = {};
@@ -246,12 +246,12 @@ static void ggml_check_sycl() try {
         g_ggml_sycl_disable_async_mem_alloc =
 #if defined(GGML_SYCL_GRAPH) && SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
             g_ggml_sycl_disable_graph;
-            for (unsigned int i = 0; i < dpct::dev_mgr::instance().device_count() && !g_ggml_sycl_disable_async_mem_alloc;
-                 ++i) {
-                if (!dpct::dev_mgr::instance().get_device(i).has(sycl::aspect::ext_oneapi_async_memory_alloc)) {
-                    g_ggml_sycl_disable_async_mem_alloc = 1;
-                }
+        for (unsigned int i = 0; i < dpct::dev_mgr::instance().device_count() && !g_ggml_sycl_disable_async_mem_alloc;
+             ++i) {
+            if (!dpct::dev_mgr::instance().get_device(i).has(sycl::aspect::ext_oneapi_async_memory_alloc)) {
+                g_ggml_sycl_disable_async_mem_alloc = 1;
             }
+        }
 #else
             1;
 #endif
@@ -3049,7 +3049,10 @@ static bool ggml_sycl_supports_dmmv(enum ggml_type type) {
 }
 
 // Helper functions to unify device memory allocation for both async and sync paths
-static inline void * sycl_malloc_opt_async(dpct::queue_ptr stream, sycl::usm::alloc alloc_type, size_t size, bool use_async) {
+static inline void * sycl_malloc_opt_async(dpct::queue_ptr  stream,
+                                           sycl::usm::alloc alloc_type,
+                                           size_t           size,
+                                           bool             use_async) {
 #if defined(GGML_SYCL_GRAPH) && SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
     if (use_async) {
         return syclex::async_malloc(*stream, alloc_type, size);
@@ -3061,7 +3064,7 @@ static inline void * sycl_malloc_opt_async(dpct::queue_ptr stream, sycl::usm::al
     return sycl::malloc(size, *stream, alloc_type);
 }
 
-static inline void sycl_free_opt_async(dpct::queue_ptr stream, void* ptr, bool use_async) {
+static inline void sycl_free_opt_async(dpct::queue_ptr stream, void * ptr, bool use_async) {
 #if defined(GGML_SYCL_GRAPH) && SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
     if (use_async) {
         syclex::async_free(*stream, ptr);
@@ -3077,7 +3080,8 @@ static inline void sycl_free_opt_async(dpct::queue_ptr stream, void* ptr, bool u
 static void reorder_qw_q4_0(uint8_t * data_device, const int ncols, const int nrows, size_t size, size_t offset,
                             dpct::queue_ptr stream) {
     const bool use_async = !g_ggml_sycl_disable_async_mem_alloc;
-    uint8_t * tmp_buf = static_cast<uint8_t *>(sycl_malloc_opt_async(stream, sycl::usm::alloc::device, size, use_async));
+    uint8_t *  tmp_buf =
+        static_cast<uint8_t *>(sycl_malloc_opt_async(stream, sycl::usm::alloc::device, size, use_async));
 
     sycl::event copy_event;
     SYCL_CHECK(CHECK_TRY_ERROR(copy_event = stream->memcpy(tmp_buf, data_device, size)));
@@ -3116,7 +3120,8 @@ static void reorder_qw_q4_k(uint8_t * data_device, size_t size, size_t offset, d
     const int nblocks = size / sizeof(block_q4_K);
 
     const bool use_async = !g_ggml_sycl_disable_async_mem_alloc;
-    uint8_t * tmp_buf = static_cast<uint8_t *>(sycl_malloc_opt_async(stream, sycl::usm::alloc::device, size, use_async));
+    uint8_t *  tmp_buf =
+        static_cast<uint8_t *>(sycl_malloc_opt_async(stream, sycl::usm::alloc::device, size, use_async));
 
     sycl::event copy_event;
     SYCL_CHECK(CHECK_TRY_ERROR(copy_event = stream->memcpy(tmp_buf, data_device, size)));
@@ -3155,7 +3160,8 @@ static void reorder_qw_q6_k(uint8_t * data_device, size_t size, size_t offset, d
     const int nblocks = size / sizeof(block_q6_K);
 
     const bool use_async = !g_ggml_sycl_disable_async_mem_alloc;
-    uint8_t * tmp_buf = static_cast<uint8_t *>(sycl_malloc_opt_async(stream, sycl::usm::alloc::device, size, use_async));
+    uint8_t *  tmp_buf =
+        static_cast<uint8_t *>(sycl_malloc_opt_async(stream, sycl::usm::alloc::device, size, use_async));
 
     sycl::event copy_event;
     SYCL_CHECK(CHECK_TRY_ERROR(copy_event = stream->memcpy(tmp_buf, data_device, size)));
