@@ -243,16 +243,19 @@ static void ggml_check_sycl() try {
         // Currently, we only use async malloc / free when graphs are enabled as it is required for the calls to be
         // properly recorded. As this SYCL extension matures it may be beneficial to enable as the default path and in
         // other places.
-        g_ggml_sycl_disable_async_mem_alloc = g_ggml_sycl_disable_graph;
+        g_ggml_sycl_disable_async_mem_alloc =
+#if defined(GGML_SYCL_GRAPH) && SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+            g_ggml_sycl_disable_graph;
+#else
+            1;
+#endif
 #if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
-        for (int i = 0; i < dpct::dev_mgr::instance().device_count(); ++i) {
+        for (unsigned int i = 0; i < dpct::dev_mgr::instance().device_count() && !g_ggml_sycl_disable_async_mem_alloc;
+             ++i) {
             if (!dpct::dev_mgr::instance().get_device(i).has(sycl::aspect::ext_oneapi_async_memory_alloc)) {
                 g_ggml_sycl_disable_async_mem_alloc = 1;
-                break;
             }
         }
-#else
-        g_ggml_sycl_disable_async_mem_alloc = 1;
 #endif
         if (CHECK_TRY_ERROR(g_all_sycl_device_count =
                             dpct::dev_mgr::instance().device_count()) != 0) {
@@ -3047,14 +3050,16 @@ static bool ggml_sycl_supports_dmmv(enum ggml_type type) {
     }
 }
 
-// Helper functions to manage async memory allocation with fallback to sync
-static inline void* sycl_malloc_opt_async(dpct::queue_ptr stream, sycl::usm::alloc alloc_type, size_t size, bool use_async) {
+// Helper functions to unify device memory allocation for both async and sync paths
+static inline void * sycl_malloc_opt_async(dpct::queue_ptr stream, sycl::usm::alloc alloc_type, size_t size, bool use_async) {
 #if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
     if (use_async) {
         return syclex::async_malloc(*stream, alloc_type, size);
     }
-#endif
+#else
+    // If async allocation extension is not available, we should have never passed use_async=true
     GGML_ASSERT(!use_async);
+#endif
     return sycl::malloc(size, *stream, alloc_type);
 }
 
@@ -3064,8 +3069,10 @@ static inline void sycl_free_opt_async(dpct::queue_ptr stream, void* ptr, bool u
         syclex::async_free(*stream, ptr);
         return;
     }
-#endif
+#else
+    // If async allocation extension is not available, we should have never passed use_async=true
     GGML_ASSERT(!use_async);
+#endif
     sycl::free(ptr, *stream);
 }
 
@@ -3086,7 +3093,7 @@ static void reorder_qw_q4_0(uint8_t * data_device, const int ncols, const int nr
     auto qs_ptr      = data_device + offset_blks * QK4_0 / 2;
     auto d_ptr = (sycl::half*)(qs_ptr + ncols * nrows / 2) + offset_blks;
 
-    stream->parallel_for(
+    auto e = stream->parallel_for(
         size / sizeof(block_q4_0),
             [=](auto i) [[sycl::reqd_sub_group_size(WARP_SIZE)]] {
             const block_q4_0* x = (const block_q4_0*)tmp_buf;
@@ -3099,7 +3106,7 @@ static void reorder_qw_q4_0(uint8_t * data_device, const int ncols, const int nr
             *(d_ptr + ib) = x[ib].d;
         });
     if (!use_async) {
-        stream->wait();
+        e.wait();
     }
     sycl_free_opt_async(stream, tmp_buf, use_async);
 }
@@ -4098,13 +4105,16 @@ static bool check_graph_compatibility(ggml_cgraph * cgraph) {
                               ggml_op_name(node_op));
                 return false;
             case GGML_OP_MUL_MAT:
+                // We cannot use graphs with GGML_OP_MUL_MAT when SYCL async memory allocation extensions are not available,
+                // as SYCL malloc / free calls are not supported when recording to a graph and wait() is present.
                 if (g_ggml_sycl_disable_async_mem_alloc) {
-                    GGML_LOG_INFO("%s: disabling SYCL graphs due to unsupported node type with no async memory allocations in " 
-                                  "%s\n", __func__,
-                                  ggml_op_name(node_op));
+                    GGML_LOG_INFO(
+                        "%s: disabling SYCL graphs due to unsupported node type when using a compiler without the "
+                        "oneAPI async memory allocation extension "
+                        "%s\n",
+                        __func__, ggml_op_name(node_op));
                     return false;
                 }
-                return true;
         }
     }
     return true;
