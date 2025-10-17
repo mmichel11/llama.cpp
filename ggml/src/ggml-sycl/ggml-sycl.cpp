@@ -30,7 +30,7 @@
 #include <regex>
 
 #include <sycl/sycl.hpp>
-#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+#if defined(GGML_SYCL_GRAPH) && SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
 #   include <sycl/ext/oneapi/experimental/async_alloc/async_alloc.hpp>
 #endif
 #include <sycl/half_type.hpp>
@@ -246,16 +246,14 @@ static void ggml_check_sycl() try {
         g_ggml_sycl_disable_async_mem_alloc =
 #if defined(GGML_SYCL_GRAPH) && SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
             g_ggml_sycl_disable_graph;
+            for (unsigned int i = 0; i < dpct::dev_mgr::instance().device_count() && !g_ggml_sycl_disable_async_mem_alloc;
+                 ++i) {
+                if (!dpct::dev_mgr::instance().get_device(i).has(sycl::aspect::ext_oneapi_async_memory_alloc)) {
+                    g_ggml_sycl_disable_async_mem_alloc = 1;
+                }
+            }
 #else
             1;
-#endif
-#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
-        for (unsigned int i = 0; i < dpct::dev_mgr::instance().device_count() && !g_ggml_sycl_disable_async_mem_alloc;
-             ++i) {
-            if (!dpct::dev_mgr::instance().get_device(i).has(sycl::aspect::ext_oneapi_async_memory_alloc)) {
-                g_ggml_sycl_disable_async_mem_alloc = 1;
-            }
-        }
 #endif
         if (CHECK_TRY_ERROR(g_all_sycl_device_count =
                             dpct::dev_mgr::instance().device_count()) != 0) {
@@ -3052,7 +3050,7 @@ static bool ggml_sycl_supports_dmmv(enum ggml_type type) {
 
 // Helper functions to unify device memory allocation for both async and sync paths
 static inline void * sycl_malloc_opt_async(dpct::queue_ptr stream, sycl::usm::alloc alloc_type, size_t size, bool use_async) {
-#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+#if defined(GGML_SYCL_GRAPH) && SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
     if (use_async) {
         return syclex::async_malloc(*stream, alloc_type, size);
     }
@@ -3064,7 +3062,7 @@ static inline void * sycl_malloc_opt_async(dpct::queue_ptr stream, sycl::usm::al
 }
 
 static inline void sycl_free_opt_async(dpct::queue_ptr stream, void* ptr, bool use_async) {
-#if SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
+#if defined(GGML_SYCL_GRAPH) && SYCL_EXT_ONEAPI_ASYNC_MEMORY_ALLOC
     if (use_async) {
         syclex::async_free(*stream, ptr);
         return;
@@ -4106,7 +4104,8 @@ static bool check_graph_compatibility(ggml_cgraph * cgraph) {
                 return false;
             case GGML_OP_MUL_MAT:
                 // We cannot use graphs with GGML_OP_MUL_MAT when SYCL async memory allocation extensions are not available,
-                // as SYCL malloc / free calls are not supported when recording to a graph and wait() is present.
+                // as SYCL malloc / free calls are not supported when recording to a graph and wait() is present in reordering
+                // calls.
                 if (g_ggml_sycl_disable_async_mem_alloc) {
                     GGML_LOG_INFO(
                         "%s: disabling SYCL graphs due to unsupported node type when using a compiler without the "
