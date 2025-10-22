@@ -289,6 +289,18 @@ struct ggml_tensor_extra_gpu {
 void release_extra_gpu(ggml_tensor_extra_gpu * extra, std::vector<queue_ptr> streams={});
 
 namespace sycl_ex = sycl::ext::oneapi::experimental;
+
+#ifdef GGML_SYCL_GRAPH
+struct ggml_graph_node_properties {
+    void *  node_address;
+    ggml_op node_op;
+    int64_t ne[GGML_MAX_DIMS];
+    size_t  nb[GGML_MAX_DIMS];
+    void *  src_address[GGML_MAX_SRC];
+    int32_t op_params[GGML_MAX_OP_PARAMS / sizeof(int32_t)];
+};
+#endif
+
 struct ggml_backend_sycl_context {
     int device;
     std::string name;
@@ -400,6 +412,7 @@ struct ggml_backend_sycl_context {
 
 #ifdef GGML_SYCL_GRAPH
     std::unique_ptr<sycl_ex::command_graph<sycl_ex::graph_state::executable>> exec_graph = nullptr;
+    std::vector<ggml_graph_node_properties>                                   ggml_graph_properties;
 #endif
 
     ggml_sycl_pool & host_pool(int device) {
