@@ -1702,7 +1702,11 @@ static void ggml_mul_mat_p021_f16_f32_sycl(const void *vx, const float *y,
         dpct::has_capability_or_fail(stream->get_device(),
                                      {sycl::aspect::fp16});
 
+#ifdef GGML_SYCL_OLD
         stream->parallel_for(
+#else
+        sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
             sycl::nd_range<3>(block_nums * block_dims, block_dims),
             [=](sycl::nd_item<3> item_ct1) [[sycl::reqd_sub_group_size(WARP_SIZE)]] {
                 mul_mat_p021_f16_f32(vx, y, dst, ncols_x, nrows_x, nchannels_x,
@@ -1722,7 +1726,11 @@ static void ggml_mul_mat_vec_nc_f16_f32_sycl(
         dpct::has_capability_or_fail(stream->get_device(),
                                      {sycl::aspect::fp16});
 
+#ifdef GGML_SYCL_OLD
         stream->parallel_for(
+#else
+        sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
             sycl::nd_range<3>(block_nums * block_dims, block_dims),
             [=](sycl::nd_item<3> item_ct1) [[sycl::reqd_sub_group_size(WARP_SIZE)]] {
                 mul_mat_vec_nc_f16_f32(vx, y, dst, ncols_x, nrows_x,
@@ -1737,7 +1745,11 @@ static void ggml_mul_mat_vec_nc_f16_f32_sycl(
 static void scale_f32_sycl(const float *x, float *dst, const float scale, const float bias,
                            const int k, queue_ptr stream) {
     const int num_blocks = (k + SYCL_SCALE_BLOCK_SIZE - 1) / SYCL_SCALE_BLOCK_SIZE;
+#ifdef GGML_SYCL_OLD
     stream->parallel_for(
+#else
+    sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
         sycl::nd_range<3>(sycl::range<3>(1, 1, num_blocks) *
                               sycl::range<3>(1, 1, SYCL_SCALE_BLOCK_SIZE),
                           sycl::range<3>(1, 1, SYCL_SCALE_BLOCK_SIZE)),
@@ -1751,7 +1763,12 @@ static void sum_rows_f32_sycl(const float *x, float *dst, const int ncols,
                               const int nrows, queue_ptr stream) {
     const sycl::range<3> block_dims(1, 1, WARP_SIZE);
     const sycl::range<3> block_nums(1, nrows, 1);
-    stream->parallel_for(sycl::nd_range<3>(block_nums * block_dims, block_dims),
+#ifdef GGML_SYCL_OLD
+    stream->parallel_for(
+#else
+    sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
+                         sycl::nd_range<3>(block_nums * block_dims, block_dims),
                          [=](sycl::nd_item<3> item_ct1)
                              [[sycl::reqd_sub_group_size(WARP_SIZE)]] {
                                  k_sum_rows_f32(x, dst, ncols, item_ct1);
@@ -1879,7 +1896,12 @@ static void diag_mask_inf_f32_sycl(const float *x, float *dst,
     const sycl::range<3> block_dims(1, SYCL_DIAG_MASK_INF_BLOCK_SIZE, 1);
     const int block_num_x = (ncols_x + SYCL_DIAG_MASK_INF_BLOCK_SIZE - 1) / SYCL_DIAG_MASK_INF_BLOCK_SIZE;
     const sycl::range<3> block_nums(1, block_num_x, nrows_x);
-    stream->parallel_for(sycl::nd_range<3>(block_nums * block_dims, block_dims),
+#ifdef GGML_SYCL_OLD
+    stream->parallel_for(
+#else
+    sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
+                         sycl::nd_range<3>(block_nums * block_dims, block_dims),
                          [=](sycl::nd_item<3> item_ct1) {
                              diag_mask_inf_f32(x, dst, ncols_x,
                                                rows_per_channel, n_past,
@@ -2106,7 +2128,7 @@ catch (sycl::exception const &exc) {
 static void ggml_sycl_op_pool2d(ggml_backend_sycl_context & ctx, ggml_tensor * dst) {
     GGML_ASSERT(dst->src[0]->type == GGML_TYPE_F32);
     GGML_ASSERT( dst->type == GGML_TYPE_F32);
-    dpct::queue_ptr main_stream = ctx.stream();
+    dpct::queue_ptr stream = ctx.stream();
     SYCL_CHECK(ggml_sycl_set_device(ctx.device));
     const float * src0_dd = static_cast<const float *>(dst->src[0]->data);
     float *       dst_dd  = static_cast<float *>(dst->data);
@@ -2131,7 +2153,11 @@ static void ggml_sycl_op_pool2d(ggml_backend_sycl_context & ctx, ggml_tensor * d
     const int parallel_elements = N * OC * OH * OW;
     const int num_blocks = (parallel_elements + SYCL_POOL2D_BLOCK_SIZE - 1) / SYCL_POOL2D_BLOCK_SIZE;
     sycl::range<3> block_nums(1, 1, num_blocks);
-    main_stream->parallel_for(
+#ifdef GGML_SYCL_OLD
+    stream->parallel_for(
+#else
+    sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
         sycl::nd_range<3>(block_nums *
                               sycl::range<3>(1, 1, SYCL_IM2COL_BLOCK_SIZE),
                           sycl::range<3>(1, 1, SYCL_IM2COL_BLOCK_SIZE)),

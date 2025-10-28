@@ -46,7 +46,11 @@ static void timestep_embedding_f32_sycl(
     int num_blocks = (half_ceil + SYCL_TIMESTEP_EMBEDDING_BLOCK_SIZE - 1) / SYCL_TIMESTEP_EMBEDDING_BLOCK_SIZE;
     sycl::range<3> block_dims(1, 1, SYCL_TIMESTEP_EMBEDDING_BLOCK_SIZE);
     sycl::range<3> gridDim(1, ne00, num_blocks);
+#ifdef GGML_SYCL_OLD
     stream->parallel_for(
+#else
+    sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
         sycl::nd_range<3>(
             gridDim * block_dims, block_dims),
         [=](sycl::nd_item<3> item_ct1) {

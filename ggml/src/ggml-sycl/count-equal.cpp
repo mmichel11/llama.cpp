@@ -64,7 +64,11 @@ void ggml_sycl_count_equal(ggml_backend_sycl_context &ctx, ggml_tensor *dst) {
     case GGML_TYPE_I32: {
         const int *src0_d = (const int *)src0->data;
         const int *src1_d = (const int *)src1->data;
+#ifdef GGML_SYCL_OLD
         stream->parallel_for(
+#else
+        sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
             sycl::nd_range<3>(block_nums * block_dims, block_dims),
             [=](sycl::nd_item<3> item_ct1) {
                 count_equal(src0_d, src1_d, dst_d, dne, ne);

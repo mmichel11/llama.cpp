@@ -312,7 +312,12 @@ static void soft_max_back_f32_sycl(const float *   grad,
     const dpct::dim3 block_dims(WARP_SIZE, 1, 1);
     const dpct::dim3 block_nums(nrows, 1, 1);
 
-    stream->parallel_for(sycl::nd_range<3>(block_nums * block_dims, block_dims),
+#ifdef GGML_SYCL_OLD
+    stream->parallel_for(
+#else
+    sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
+                         sycl::nd_range<3>(block_nums * block_dims, block_dims),
                          [=](sycl::nd_item<3> item_ct1) {
                              soft_max_back_f32(grad, dstf, dst, ncols, scale);
                              GGML_UNUSED(item_ct1);

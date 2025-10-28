@@ -58,7 +58,11 @@ static void pad_f32_sycl(const float *src, float *dst, const int lp0,
                          dpct::queue_ptr stream) {
     int num_blocks = (ne0 + SYCL_PAD_BLOCK_SIZE - 1) / SYCL_PAD_BLOCK_SIZE;
     dpct::dim3 gridDim(num_blocks, ne1, ne2 * ne3);
+#ifdef GGML_SYCL_OLD
     stream->parallel_for(
+#else
+    sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
         sycl::nd_range<3>(gridDim * sycl::range<3>(1, 1, SYCL_PAD_BLOCK_SIZE),
                           sycl::range<3>(1, 1, SYCL_PAD_BLOCK_SIZE)),
         [=](sycl::nd_item<3> item_ct1) {

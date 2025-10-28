@@ -48,7 +48,12 @@ static void set_rows_sycl_q(const char * __restrict__ src0_d,
     constexpr int block_size   = 256;
     const int64_t grid_size    = ceil_div(total_blocks, block_size);
 
-    stream->parallel_for(sycl::nd_range<1>(grid_size * block_size, block_size), [=](sycl::nd_item<1> item_ct1) {
+#ifdef GGML_SYCL_OLD
+    stream->parallel_for(
+#else
+    sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
+        sycl::nd_range<1>(grid_size * block_size, block_size), [=](sycl::nd_item<1> item_ct1) {
         const int64_t i = item_ct1.get_global_linear_id();
         if (i >= total_blocks) {
             return;
@@ -129,7 +134,11 @@ static void set_rows_sycl(
     constexpr int block_size = 64;
     const int64_t grid_size = ceil_div(total_elements, block_size);
 
+#ifdef GGML_SYCL_OLD
     stream->parallel_for(
+#else
+    sycl::ext::oneapi::experimental::nd_launch(*stream,
+#endif
         sycl::nd_range<1>(grid_size * block_size, block_size),
         [=](sycl::nd_item<1> item_ct1) {
             k_set_rows<TIn, TIdx, TOut>(
