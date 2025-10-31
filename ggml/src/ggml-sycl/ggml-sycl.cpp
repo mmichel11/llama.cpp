@@ -3715,7 +3715,7 @@ static bool ggml_sycl_compute_forward(ggml_backend_sycl_context & ctx, struct gg
             ggml_sycl_op_set_rows(ctx, dst);
             break;
         case GGML_OP_DUP:
-            ggml_sycl_dup(ctx, dst, g_ggml_sycl_disable_graph);
+            ggml_sycl_dup(ctx, dst);
             break;
         case GGML_OP_ADD:
         case GGML_OP_ADD1: // TODO: more efficient implementation
@@ -3885,10 +3885,10 @@ static bool ggml_sycl_compute_forward(ggml_backend_sycl_context & ctx, struct gg
             ggml_sycl_clamp(ctx, dst);
             break;
         case GGML_OP_CPY:
-            ggml_sycl_cpy(ctx, dst->src[0], dst->src[1], g_ggml_sycl_disable_graph);
+            ggml_sycl_cpy(ctx, dst->src[0], dst->src[1]);
             break;
         case GGML_OP_CONT:
-            ggml_sycl_dup(ctx, dst, g_ggml_sycl_disable_graph);
+            ggml_sycl_dup(ctx, dst);
             break;
         case GGML_OP_NONE:
         case GGML_OP_RESHAPE:
@@ -4256,32 +4256,19 @@ static ggml_status ggml_backend_sycl_graph_compute(ggml_backend_t backend, ggml_
         if (sycl_graph_update_required) {
             GGML_SYCL_DEBUG("[SYCL-GRAPH] graph update required\n");
 
-            sycl_ex::command_graph model_sycl_graph(*(sycl_ctx->stream()),
-                                                    { sycl_ex::property::graph::assume_buffer_outlives_graph{} });
+            sycl_ex::command_graph model_sycl_graph(*(sycl_ctx->stream()));
 
             model_sycl_graph.begin_recording(*(sycl_ctx->stream()));
             ggml_backend_sycl_graph_compute_impl(sycl_ctx, cgraph);
             model_sycl_graph.end_recording();
 
-            const bool graph_update_support = dpct::get_device(sycl_ctx->device).has(sycl::aspect::ext_oneapi_graph);
-            if (!sycl_ctx->exec_graph || !graph_update_support) {
-                auto exec_graph      = graph_update_support ?
-                                           model_sycl_graph.finalize(sycl_ex::property::graph::updatable{}) :
-                                           model_sycl_graph.finalize();
-                sycl_ctx->exec_graph = std::make_unique<
-                    sycl_ex::command_graph<sycl_ex::graph_state::executable>>(exec_graph);
-                GGML_SYCL_DEBUG("[SYCL-GRAPH] graph finalized\n");
-            } else {
-                try {
-                    sycl_ctx->exec_graph->update(model_sycl_graph);
-                    GGML_SYCL_DEBUG("[SYCL-GRAPH] update success\n");
-                } catch (const sycl::exception & e) {
-                    GGML_SYCL_DEBUG("[SYCL-GRAPH] Exception when updating graph, %s\n", e.what());
-                    auto exec_graph = model_sycl_graph.finalize({ sycl_ex::property::graph::updatable{} });
-                    sycl_ctx->exec_graph =
-                        std::make_unique<sycl_ex::command_graph<sycl_ex::graph_state::executable>>(exec_graph);
-                }
-            }
+            // Finalize is always used for update as memcpy and async alloc nodes are not supported with graph
+            // update at the time of writing. With node-tracking and graph planning, the overhead associated with
+            // re-finalization is minimized.
+            auto exec_graph = model_sycl_graph.finalize();
+            sycl_ctx->exec_graph =
+                std::make_unique<sycl_ex::command_graph<sycl_ex::graph_state::executable>>(exec_graph);
+            GGML_SYCL_DEBUG("[SYCL-GRAPH] graph finalized\n");
         } else {
             GGML_SYCL_DEBUG("[SYCL-GRAPH] reusing existing graph\n");
         }

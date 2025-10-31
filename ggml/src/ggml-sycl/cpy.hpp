@@ -219,10 +219,7 @@ inline void cpy_blck_f32_iq4_nl(const char * cxi, char * cdsti) {
 
 void ggml_memcpy_sycl(queue_ptr main_stream, void * dst, const void * src, size_t size, bool can_use_native_memcpy);
 
-void ggml_sycl_cpy(ggml_backend_sycl_context & ctx,
-                   const ggml_tensor *         src0,
-                   const ggml_tensor *         src1,
-                   bool                        can_use_native_memcpy);
-void ggml_sycl_dup(ggml_backend_sycl_context & ctx, ggml_tensor * dst, bool can_use_native_memcpy);
+void ggml_sycl_cpy(ggml_backend_sycl_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1);
+void ggml_sycl_dup(ggml_backend_sycl_context & ctx, ggml_tensor * dst);
 
 #endif  // GGML_SYCL_CPY_HPP
